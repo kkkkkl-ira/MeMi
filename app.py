@@ -124,11 +124,24 @@ st.markdown(
         backdrop-filter: blur(16px);
     }
 
-    div[data-testid="stForm"] h3 {
+    div[data-testid="stForm"] h3,
+    div[data-testid="stVerticalBlockBorderWrapper"] h3 {
         margin-top: 0.25rem;
         color: var(--memi-ink);
         font-size: 1.18rem;
         letter-spacing: -0.02em;
+    }
+
+    .output-format-help {
+        margin: -0.2rem 0 0.9rem;
+        padding: 0 0.15rem;
+        color: #858b98;
+        font-size: 0.82rem;
+        line-height: 1.65;
+    }
+
+    .output-format-help .example {
+        color: #9aa0ac;
     }
 
     .stTextInput input,
@@ -211,6 +224,49 @@ st.markdown(
     }
 
     div[data-testid="stFormSubmitButton"] button p {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        margin: 0;
+        text-align: center;
+    }
+
+    /* The main Generate button is outside a form so dropdown help can update
+       immediately. Give it the same centered pill styling. */
+    div[data-testid="stElementContainer"]:has(
+        button[data-testid="stBaseButton-primary"]
+    ) {
+        display: flex;
+        justify-content: center;
+        width: 100% !important;
+        padding-top: 0.8rem;
+    }
+
+    button[data-testid="stBaseButton-primary"] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 180px;
+        min-height: 44px;
+        border: none;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #35a0ff 0%, #2f8ff5 62%, #5879ef 100%);
+        color: #ffffff;
+        font-weight: 600;
+        box-shadow: 0 10px 24px rgba(47, 143, 245, 0.28);
+        transition: box-shadow 0.15s ease, transform 0.15s ease;
+    }
+
+    button[data-testid="stBaseButton-primary"]:hover {
+        border: none;
+        background: linear-gradient(135deg, #2d97f5 0%, #247fdc 65%, #4f6de3 100%);
+        color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 13px 28px rgba(47, 143, 245, 0.34);
+    }
+
+    button[data-testid="stBaseButton-primary"] p {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -619,7 +675,7 @@ if not openai_api_key:
         "当前没有会话 API Key，MeMi 正在使用演示模式，不会把会议记录发送给 OpenAI。"
     )
 
-with st.form("meeting_form"):
+with st.container(border=True):
     st.subheader("1. 添加会议记录")
     transcript_input = st.text_area(
         "粘贴原始会议记录",
@@ -640,6 +696,27 @@ with st.form("meeting_form"):
             "Q&A 清理版" if option == QA_OUTPUT_TYPE else "精简要点摘要"
         ),
     )
+
+    if output_type == QA_OUTPUT_TYPE:
+        st.markdown(
+            """
+            <div class="output-format-help">
+                会议内容会按照原始讨论顺序整理成多组“一问一答”，每个问题对应一段清理后的回答。<br>
+                <span class="example">示例：Q1：公司的主要业务是什么？　A：公司目前主要提供医药内容营销服务。</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """
+            <div class="output-format-help">
+                会议内容会合并重复信息并提炼为清晰要点，使用“简短结论：详细说明”的结构。<br>
+                <span class="example">示例：客户结构：外资药企约占五成，国内创新药企的占比正在提升。</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.subheader("3. 补充会议背景")
     with st.expander("可选：补充背景信息可以提高准确性"):
@@ -667,7 +744,11 @@ with st.form("meeting_form"):
 
     meeting_date = meeting_date_input.isoformat() if meeting_date_input else ""
 
-    submitted = st.form_submit_button("✨ Generate Notes", type="primary")
+    submitted = st.button(
+        "✨ Generate Notes",
+        type="primary",
+        key="generate_notes_button",
+    )
 
 if submitted:
     try:
