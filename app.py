@@ -711,8 +711,8 @@ with st.container(border=True):
         st.markdown(
             """
             <div class="output-format-help">
-                会议内容会合并重复信息并提炼为清晰要点，使用“简短结论：详细说明”的结构。<br>
-                <span class="example">示例：客户结构：外资药企约占五成，国内创新药企的占比正在提升。</span>
+                会议内容会合并重复信息并提炼为清晰要点；冒号前必须是能独立成立的完整结论句，概括冒号后的详细说明。<br>
+                <span class="example">示例：国内药企客户占比正在持续提升：早期客户以外资药企为主，目前国内创新药企的收入占比已增至四成以上。</span>
             </div>
             """,
             unsafe_allow_html=True,
