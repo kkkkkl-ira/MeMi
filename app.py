@@ -243,6 +243,16 @@ st.markdown(
         padding-top: 0.8rem;
     }
 
+    /* The widget key gives us a stable hook even when Streamlit changes the
+       internal wrapper structure around regular buttons. */
+    .st-key-generate_notes_button,
+    .st-key-generate_notes_button > div,
+    .st-key-generate_notes_button div[data-testid="stButton"] {
+        display: flex !important;
+        justify-content: center !important;
+        width: 100% !important;
+    }
+
     button[data-testid="stBaseButton-primary"] {
         display: inline-flex;
         align-items: center;
