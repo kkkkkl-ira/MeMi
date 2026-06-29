@@ -392,12 +392,18 @@ def generate_mock_notes(
     discussion_topics: str,
     meeting_date: str,
     interviewer: str,
+    detail_level: str,
 ) -> str:
     """Return a short demo result when no OpenAI API key is available."""
 
     company = company_name.strip() or "未提供公司名称"
     business = main_business.strip() or "未提供主营业务"
     topics = discussion_topics.strip() or "未提供讨论主题"
+    detail_label = {
+        "balanced": "平衡整理",
+        "complete": "完整度优先",
+        "concise": "精简优先",
+    }.get(detail_level, "平衡整理")
     header = (
         f"时间：{meeting_date.strip() or '未提供'}\n"
         f"采访人：{interviewer.strip() or '未提供'}\n"
@@ -414,15 +420,15 @@ def generate_mock_notes(
             "### Q1：公司的主营业务是什么？\n\n"
             f"公司的主营业务为{business}。\n\n"
             "### Q2：本次会议讨论了哪些主题？\n\n"
-            f"会议围绕{topics}展开。原始记录片段：{preview}\n\n"
+            f"会议围绕{topics}展开。本次采用“{detail_label}”。原始记录片段：{preview}\n\n"
             "> 这是本地 mock 输出。接入 AI API 后，将按完整提示词清理全文。"
         )
 
     return header + (
         f"# {company} 会议纪要（演示输出）\n\n"
-        f"- **主营业务：** {business}\n"
-        f"- **讨论主题：** {topics}\n"
-        f"- **记录预览：** {preview}\n\n"
+        f"- **公司主营业务已被识别为{business}：** 这是根据你填写的背景信息生成的演示内容。\n"
+        f"- **本次会议将围绕{topics}整理：** MeMi 会在真实生成时按照“{detail_label}”处理原始记录。\n"
+        f"- **原始记录已读取并截取预览：** {preview}\n\n"
         "> 这是本地 mock 输出。接入 AI API 后，将按完整提示词生成全文摘要。"
     )
 
@@ -435,6 +441,7 @@ def generate_notes(
     discussion_topics: str,
     meeting_date: str,
     interviewer: str,
+    detail_level: str,
     api_key: str | None,
 ) -> tuple[str, bool]:
     """Generate notes with OpenAI, or use mock output when the key is missing.
@@ -452,6 +459,7 @@ def generate_notes(
             discussion_topics,
             meeting_date,
             interviewer,
+            detail_level,
         )
         return mock_notes, True
 
@@ -464,6 +472,7 @@ def generate_notes(
         discussion_topics=discussion_topics,
         meeting_date=meeting_date,
         interviewer=interviewer,
+        detail_level=detail_level,
     )
 
     client = OpenAI(api_key=api_key)
@@ -536,6 +545,7 @@ def generate_with_progress(
     discussion_topics: str,
     meeting_date: str,
     interviewer: str,
+    detail_level: str,
     api_key: str | None,
 ) -> tuple[str, bool]:
     """Run generation while showing approximate, friendly progress updates."""
@@ -564,6 +574,7 @@ def generate_with_progress(
                 discussion_topics,
                 meeting_date,
                 interviewer,
+                detail_level,
                 api_key,
             )
             stage_index = 0
@@ -728,6 +739,25 @@ with st.container(border=True):
             unsafe_allow_html=True,
         )
 
+    detail_level = st.radio(
+        "整理详略程度",
+        ["balanced", "complete", "concise"],
+        format_func=lambda option: {
+            "balanced": "平衡整理",
+            "complete": "完整度优先",
+            "concise": "精简优先",
+        }[option],
+        horizontal=True,
+        help="如果你觉得纪要容易漏内容，建议选择“完整度优先”。",
+    )
+
+    if detail_level == "complete":
+        st.caption("完整度优先：尽量保留所有有效信息，特别是数字、客户、公司名、产品名、风险和结论。")
+    elif detail_level == "concise":
+        st.caption("精简优先：输出会更短，但仍会保留重要事实和结论。")
+    else:
+        st.caption("平衡整理：在可读性和信息完整度之间折中，适合大多数会议纪要。")
+
     st.subheader("3. 补充会议背景")
     with st.expander("可选：补充背景信息可以提高准确性"):
         meeting_date_input = st.date_input(
@@ -780,6 +810,7 @@ if submitted:
                 discussion_topics=discussion_topics,
                 meeting_date=meeting_date,
                 interviewer=interviewer,
+                detail_level=detail_level,
                 api_key=openai_api_key,
             )
             notes, term_checks = parse_generation_output(raw_output)

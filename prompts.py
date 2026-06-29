@@ -34,6 +34,25 @@ PROMPTS = {
 OUTPUT_TYPES = tuple(PROMPTS.keys())
 
 
+DETAIL_LEVEL_INSTRUCTIONS = {
+    "balanced": (
+        "Use a balanced level of detail: remove meaningless repetition and filler, "
+        "but keep important facts, numbers, names, timelines, reasons, risks, and conclusions."
+    ),
+    "complete": (
+        "Prioritize completeness over brevity. Keep all useful information from the transcript, "
+        "including specific facts, numbers, company names, people names, product names, dates, "
+        "customer names, revenue mix, risks, and conclusion-like judgments. Except for filler words, "
+        "repeated words, and meaningless pauses, do not delete concrete information. If something is "
+        "uncertain, keep it and mark it as 【待确认】 instead of omitting it."
+    ),
+    "concise": (
+        "Prioritize concise output. Remove repetition aggressively, but do not remove concrete facts, "
+        "numbers, names, risks, or important conclusions."
+    ),
+}
+
+
 def get_prompt_template(output_type: str) -> str:
     """Return the instruction that belongs to the selected output type."""
 
@@ -51,14 +70,21 @@ def build_prompt(
     discussion_topics: str,
     meeting_date: str = "",
     interviewer: str = "",
+    detail_level: str = "balanced",
 ) -> str:
     """Combine the selected instruction, meeting context, and transcript."""
 
     instruction = get_prompt_template(output_type)
+    detail_instruction = DETAIL_LEVEL_INSTRUCTIONS.get(
+        detail_level, DETAIL_LEVEL_INSTRUCTIONS["balanced"]
+    )
     return f"""You are an accurate meeting-notes editor.
 
 Task:
 {instruction}
+
+Detail level:
+{detail_instruction}
 
 Terminology verification:
 {TERM_CHECK_INSTRUCTION}
