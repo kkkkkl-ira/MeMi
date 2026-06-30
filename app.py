@@ -11,7 +11,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI, OpenAIError
 
-from prompts import OUTPUT_TYPES, QA_OUTPUT_TYPE, build_prompt
+from prompts import OUTPUT_TYPES, QA_OUTPUT_TYPE, build_merge_prompt, build_prompt
 
 
 # Page configuration must be the first Streamlit command in the app.
@@ -375,6 +375,10 @@ st.markdown(
 )
 
 
+LONG_TRANSCRIPT_THRESHOLD = 70000
+LONG_TRANSCRIPT_CHUNK_SIZE = 50000
+
+
 def read_uploaded_text(uploaded_file) -> str:
     """Read a UTF-8 .txt upload and return its text.
 
@@ -382,6 +386,45 @@ def read_uploaded_text(uploaded_file) -> str:
     """
 
     return uploaded_file.getvalue().decode("utf-8-sig")
+
+
+def split_long_transcript(transcript: str, max_chars: int = LONG_TRANSCRIPT_CHUNK_SIZE) -> list[str]:
+    """Split a long transcript into readable chunks without cutting too abruptly."""
+
+    clean_text = transcript.strip()
+    if len(clean_text) <= max_chars:
+        return [clean_text]
+
+    chunks = []
+    start = 0
+    while start < len(clean_text):
+        target_end = min(start + max_chars, len(clean_text))
+        if target_end == len(clean_text):
+            chunks.append(clean_text[start:target_end].strip())
+            break
+
+        # Prefer splitting at a paragraph or line break near the target size.
+        split_at = clean_text.rfind("\n\n", start, target_end)
+        if split_at < start + int(max_chars * 0.65):
+            split_at = clean_text.rfind("\n", start, target_end)
+        if split_at < start + int(max_chars * 0.65):
+            split_at = target_end
+
+        chunks.append(clean_text[start:split_at].strip())
+        start = split_at
+
+    return [chunk for chunk in chunks if chunk]
+
+
+def call_openai(client: OpenAI, prompt: str, max_output_tokens: int = 12000) -> str:
+    """Call OpenAI once and return the generated text."""
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=prompt,
+        max_output_tokens=max_output_tokens,
+    )
+    return response.output_text
 
 
 def generate_mock_notes(
@@ -463,9 +506,56 @@ def generate_notes(
         )
         return mock_notes, True
 
-    # build_prompt() selects the matching template and includes all context.
-    complete_prompt = build_prompt(
-        transcript=transcript,
+    client = OpenAI(api_key=api_key)
+    transcript_chunks = split_long_transcript(transcript)
+
+    if len(transcript_chunks) == 1:
+        # build_prompt() selects the matching template and includes all context.
+        complete_prompt = build_prompt(
+            transcript=transcript,
+            output_type=output_type,
+            company_name=company_name,
+            main_business=main_business,
+            discussion_topics=discussion_topics,
+            meeting_date=meeting_date,
+            interviewer=interviewer,
+            detail_level=detail_level,
+        )
+        return call_openai(client, complete_prompt), False
+
+    # Long meetings are safer when each chunk is cleaned first, then merged.
+    # This costs more tokens, but preserves more detail than one giant pass.
+    chunk_outputs = []
+    for index, chunk in enumerate(transcript_chunks, start=1):
+        chunk_prompt = build_prompt(
+            transcript=(
+                f"[Transcript chunk {index} of {len(transcript_chunks)}]\n\n{chunk}"
+            ),
+            output_type=output_type,
+            company_name=company_name,
+            main_business=main_business,
+            discussion_topics=(
+                f"{discussion_topics}\n"
+                f"Long transcript chunk {index} of {len(transcript_chunks)}."
+            ).strip(),
+            meeting_date=meeting_date,
+            interviewer=interviewer,
+            detail_level=detail_level,
+        )
+        chunk_output = call_openai(client, chunk_prompt)
+        # Remove hidden markers from intermediate notes before the merge pass.
+        clean_chunk_output = re.sub(
+            r"<!--\s*MEMI_TERM_CHECKS\s*\[.*?\]\s*-->",
+            "",
+            chunk_output,
+            flags=re.DOTALL,
+        ).strip()
+        chunk_outputs.append(
+            f"## Chunk {index} of {len(transcript_chunks)}\n\n{clean_chunk_output}"
+        )
+
+    merge_prompt = build_merge_prompt(
+        chunk_notes="\n\n---\n\n".join(chunk_outputs),
         output_type=output_type,
         company_name=company_name,
         main_business=main_business,
@@ -474,13 +564,7 @@ def generate_notes(
         interviewer=interviewer,
         detail_level=detail_level,
     )
-
-    client = OpenAI(api_key=api_key)
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        input=complete_prompt,
-    )
-    return response.output_text, False
+    return call_openai(client, merge_prompt, max_output_tokens=16000), False
 
 
 def parse_generation_output(output_text: str) -> tuple[str, list[dict]]:
@@ -742,6 +826,7 @@ with st.container(border=True):
     detail_level = st.radio(
         "整理详略程度",
         ["balanced", "complete", "concise"],
+        index=1,
         format_func=lambda option: {
             "balanced": "平衡整理",
             "complete": "完整度优先",
@@ -801,6 +886,11 @@ if submitted:
     if not transcript:
         st.error("请先粘贴会议记录或上传一个 .txt 文件。")
     else:
+        if len(transcript) > LONG_TRANSCRIPT_THRESHOLD:
+            st.info(
+                "MeMi 将自动开启长会议增强模式：先分段整理，再合并成一份完整纪要。"
+                "这会消耗更多 API token，但更有利于保留细节。"
+            )
         try:
             raw_output, used_mock = generate_with_progress(
                 transcript=transcript,

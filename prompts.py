@@ -18,10 +18,10 @@ After the Markdown notes, always append the following hidden marker with a valid
 Use an empty array (`[]`) inside the marker when no terms need confirmation. Do not mention the terminology check anywhere else in the meeting notes."""
 
 
-QA_INSTRUCTION = """Organize the transcript into multiple Q&A pairs grouped by discussion topic. Each question must have one corresponding paragraph answer. Preserve the original order of questions and discussion topics. Keep the original wording and logic as much as possible. Delete filler words, repeated words, and empty expressions such as “嗯”, “啊”, “就是”, “然后”, “对”, “这个”, “那个”, “这边”, “那边”, “这一块”, “那一块”. Merge repeated information within the relevant answer, but do not merge the entire meeting into one broad question. Do not over-summarize. Do not add information that is not in the transcript. If a term is unclear, mark it as 【待确认】. Format each pair as a Markdown heading in the form “### Q1: question”, followed by its answer paragraph, then continue with Q2, Q3, and so on."""
+QA_INSTRUCTION = """Organize the transcript into multiple Q&A pairs grouped by discussion topic. Each original interviewer question or clearly separate discussion topic should become its own Q&A pair. Each question must have one corresponding paragraph answer. Preserve the original order of questions and discussion topics. Keep the original wording, logic, factual sequence, numbers, names, examples, and caveats as much as possible. Delete filler words, repeated words, and empty expressions such as “嗯”, “啊”, “就是”, “然后”, “对”, “这个”, “那个”, “这边”, “那边”, “这一块”, “那一块”. Merge repeated information within the relevant answer, but do not merge the entire meeting into one broad question. Do not over-summarize. Do not delete concrete facts merely to make the answer shorter. Do not add information that is not in the transcript. If a term is unclear, mark it as 【待确认】. Format each pair as a Markdown heading in the form “### Q1: question”, followed by its answer paragraph, then continue with Q2, Q3, and so on."""
 
 
-BULLET_SUMMARY_INSTRUCTION = """Organize the transcript into clear bullet points. Delete filler words and repeated expressions, but do not change the meaning. Cover company history, main business, revenue mix, customers, customer share, financial information, product/service details, competitive landscape, growth drivers, risks, and other important information if mentioned. Every bullet must use the format “complete conclusion sentence: detailed paragraph”. The text before the colon must be a complete, standalone conclusion sentence that accurately summarizes the entire detailed explanation after the colon. Do not put a category label, heading, or sentence fragment before the colon; for example, avoid labels such as “客户结构”, “增长驱动”, or “主要风险”. Merge repeated information. Do not invent missing information. If a term is unclear, mark it as 【待确认】."""
+BULLET_SUMMARY_INSTRUCTION = """Organize the transcript into clear bullet points. Delete filler words and repeated expressions, but do not change the meaning. Cover company history, main business, revenue mix, customers, customer share, financial information, product/service details, competitive landscape, growth drivers, risks, and other important information if mentioned. Preserve concrete facts, numbers, names, timelines, examples, and caveats even when the summary becomes longer. Every bullet must use the format “complete conclusion sentence: detailed paragraph”. The text before the colon must be a complete, standalone conclusion sentence that accurately summarizes the entire detailed explanation after the colon. Do not put a category label, heading, or sentence fragment before the colon; for example, avoid labels such as “客户结构”, “增长驱动”, or “主要风险”. Merge repeated information. Do not invent missing information. If a term is unclear, mark it as 【待确认】."""
 
 
 PROMPTS = {
@@ -36,8 +36,9 @@ OUTPUT_TYPES = tuple(PROMPTS.keys())
 
 DETAIL_LEVEL_INSTRUCTIONS = {
     "balanced": (
-        "Use a balanced level of detail: remove meaningless repetition and filler, "
-        "but keep important facts, numbers, names, timelines, reasons, risks, and conclusions."
+        "Use a balanced but information-preserving level of detail: remove meaningless repetition "
+        "and filler, but keep important facts, numbers, names, timelines, reasons, examples, risks, "
+        "and conclusions. When unsure whether a detail is important, keep it."
     ),
     "complete": (
         "Prioritize completeness over brevity. Keep all useful information from the transcript, "
@@ -86,6 +87,9 @@ Task:
 Detail level:
 {detail_instruction}
 
+Completeness check:
+Before writing the final answer, silently compare your notes against the raw transcript one more time. Restore any omitted concrete information, especially facts about company history, business model, products or services, customers, customer concentration, revenue mix, financial figures, prices or budgets, margins, timelines, competitors, platform/channel details, growth drivers, risks, compliance constraints, team size, valuation, examples, and the speaker's explicit judgments. Do not output this checklist; only use it to improve the final notes.
+
 Terminology verification:
 {TERM_CHECK_INSTRUCTION}
 
@@ -110,4 +114,60 @@ Raw transcript:
 ---
 
 Return the cleaned meeting notes in Markdown followed by the hidden terminology-check marker.
+"""
+
+
+def build_merge_prompt(
+    chunk_notes: str,
+    output_type: str,
+    company_name: str,
+    main_business: str,
+    discussion_topics: str,
+    meeting_date: str = "",
+    interviewer: str = "",
+    detail_level: str = "complete",
+) -> str:
+    """Build a prompt that merges several chunk-level notes into final notes."""
+
+    instruction = get_prompt_template(output_type)
+    detail_instruction = DETAIL_LEVEL_INSTRUCTIONS.get(
+        detail_level, DETAIL_LEVEL_INSTRUCTIONS["complete"]
+    )
+    return f"""You are an accurate senior meeting-notes editor.
+
+You will receive meeting notes generated from consecutive chunks of the same transcript.
+Your job is to merge them into one final, coherent meeting note.
+
+Final output format:
+{instruction}
+
+Detail level:
+{detail_instruction}
+
+Merging rules:
+- Preserve the original order of the discussion across chunks.
+- Keep all concrete facts, numbers, names, timelines, examples, risks, caveats, and speaker judgments.
+- Merge only genuinely repeated information.
+- Do not shorten away important details merely to make the final notes neater.
+- Do not invent missing information.
+- If a term is unclear, keep it and mark it as 【待确认】.
+- Remove duplicate headers from chunk notes and use only the required final header below.
+
+Required output header:
+Begin the meeting notes with exactly these three plain-text lines, without bullets or Markdown headings. Use “未提供” when the corresponding context was not supplied.
+时间：{meeting_date or "未提供"}
+采访人：{interviewer or "未提供"}
+会议主题：{discussion_topics or "未提供"}
+
+After these three lines, add one blank line and then write the merged meeting notes.
+
+Chunk-level notes to merge:
+---
+{chunk_notes}
+---
+
+Return only the final merged Markdown notes followed by this hidden marker:
+<!-- MEMI_TERM_CHECKS
+[]
+-->
 """
